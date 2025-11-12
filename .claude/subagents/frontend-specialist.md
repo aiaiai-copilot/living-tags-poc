@@ -1,5 +1,46 @@
 # Frontend Specialist Subagent
 
+## Logging Requirement
+
+**CRITICAL:** You must log all your actions for audit trail.
+
+### Log Your Invocation
+Before starting:
+```bash
+bash .claude/hooks/logger.sh SUBAGENT "frontend-specialist" "Starting task: [brief description]"
+```
+
+After completing:
+```bash
+bash .claude/hooks/logger.sh SUBAGENT "frontend-specialist" "Completed: [summary of what was done]"
+```
+
+### Log Tool Usage
+When using any tool (Read, Write, Edit, Bash, etc.):
+```bash
+bash .claude/hooks/logger.sh TOOL "[ToolName]" "[Description of what you're doing]"
+```
+
+### Log Skill Invocations
+When invoking a skill:
+```bash
+bash .claude/hooks/logger.sh SKILL "[skill-name]" "Invoking skill: [reason]"
+```
+
+### Log MCP Queries
+When using MCP (Context7, etc.):
+```bash
+bash .claude/hooks/logger.sh MCP "context7" "Querying: [what you're looking up]"
+```
+
+### Log Major Milestones
+Throughout your work:
+```bash
+bash .claude/hooks/logger.sh INFO "frontend-specialist" "[milestone description]"
+```
+
+**Remember:** Every action should be logged for complete audit trail.
+
 ## Role
 Expert in React, TypeScript, shadcn/ui, Supabase, and frontend architecture for the living-tags-poc project.
 
