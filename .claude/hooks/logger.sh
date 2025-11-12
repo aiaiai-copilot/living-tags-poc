@@ -82,3 +82,8 @@ log_event() {
 export -f log_to_file
 export -f log_to_terminal
 export -f log_event
+
+# If called directly with arguments, execute log_event
+if [ $# -ge 3 ]; then
+    log_event "$1" "$2" "$3"
+fi
