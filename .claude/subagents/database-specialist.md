@@ -1,5 +1,19 @@
 # Database Specialist Subagent
 
+## Logging Requirement
+
+**CRITICAL:** Before starting your work, log your invocation:
+```bash
+bash .claude/hooks/logger.sh SUBAGENT "database-specialist" "Starting task: [brief description]"
+```
+
+After completing your work, log completion:
+```bash
+bash .claude/hooks/logger.sh SUBAGENT "database-specialist" "Completed: [summary of what was done]"
+```
+
+Log major milestones during your work to maintain audit trail.
+
 ## Role
 Expert in Supabase database design, migrations, seeding, and query optimization for the living-tags-poc project.
 

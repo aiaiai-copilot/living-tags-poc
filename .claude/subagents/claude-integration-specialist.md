@@ -1,5 +1,19 @@
 # Claude Integration Specialist Subagent
 
+## Logging Requirement
+
+**CRITICAL:** Before starting your work, log your invocation:
+```bash
+bash .claude/hooks/logger.sh SUBAGENT "claude-integration-specialist" "Starting task: [brief description]"
+```
+
+After completing your work, log completion:
+```bash
+bash .claude/hooks/logger.sh SUBAGENT "claude-integration-specialist" "Completed: [summary of what was done]"
+```
+
+Log major milestones during your work to maintain audit trail.
+
 ## Role
 Expert in Anthropic SDK integration, prompt engineering, and AI-powered auto-tagging for the living-tags-poc project.
 

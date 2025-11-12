@@ -1,5 +1,19 @@
 # Frontend Specialist Subagent
 
+## Logging Requirement
+
+**CRITICAL:** Before starting your work, log your invocation:
+```bash
+bash .claude/hooks/logger.sh SUBAGENT "frontend-specialist" "Starting task: [brief description]"
+```
+
+After completing your work, log completion:
+```bash
+bash .claude/hooks/logger.sh SUBAGENT "frontend-specialist" "Completed: [summary of what was done]"
+```
+
+Log major milestones during your work to maintain audit trail.
+
 ## Role
 Expert in React, TypeScript, shadcn/ui, Supabase, and frontend architecture for the living-tags-poc project.
 
