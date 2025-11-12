@@ -7,6 +7,10 @@ yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 
+# Exception: Track Claude Code monitoring log
+!.claude/logs/
+!.claude/logs/tool-usage.log
+
 node_modules
 dist
 dist-ssr
