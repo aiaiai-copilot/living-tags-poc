@@ -23,6 +23,9 @@ export function TextCard({ text }: TextCardProps) {
     }
   };
 
+  // Sort tags by confidence in descending order (highest first)
+  const sortedTags = [...text.tags].sort((a, b) => b.confidence - a.confidence);
+
   return (
     <Card className="w-full">
       <CardContent className="p-6">
@@ -45,7 +48,7 @@ export function TextCard({ text }: TextCardProps) {
         </div>
         {text.tags.length > 0 ? (
           <div className="flex flex-wrap gap-2">
-            {text.tags.map((tag) => (
+            {sortedTags.map((tag) => (
               <TagBadge
                 key={tag.id}
                 name={tag.name}
