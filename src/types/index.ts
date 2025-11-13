@@ -29,3 +29,13 @@ export interface TextTag {
 export interface TextWithTags extends Text {
   tags: Array<Tag & { confidence: number }>;
 }
+
+/**
+ * Result of Claude API tag analysis for a single tag
+ */
+export interface TagAnalysisResult {
+  id: string;
+  name: string;
+  confidence: number; // 0.0 to 1.0
+  reasoning?: string;
+}
