@@ -16,13 +16,16 @@ This document specifies the Prototype (Stage 2) of the Living Tags platform - a 
 
 1. **Multi-tenancy**: Implement user authentication and complete data isolation
 2. **Dynamic Glossary**: Full CRUD operations with automatic synchronization across all user's texts
-3. **Scalability**: Support 100+ texts per user with batch processing
-4. **Data Portability**: Import/export functionality for text collections
+3. **Manual Tag Correction**: Inline editing to add/remove tags, with preservation during AI re-tagging
+4. **Scalability**: Support 100+ texts per user with batch processing
+5. **Data Portability**: Import/export functionality for text collections
 
 ### Success Criteria
 
 - ✅ Complete user data isolation (verified with test accounts)
 - ✅ Glossary synchronization works without data loss
+- ✅ Manual tag editing works with clear AI/manual distinction
+- ✅ Manual tags preserved during AI re-tagging operations
 - ✅ Import of 100+ texts completes successfully with progress indication
 - ✅ All PoC features continue working (auto-tag, search, confidence scores)
 - ✅ Positive UX feedback from 3+ alpha testers
@@ -114,19 +117,21 @@ CREATE TABLE texts (
 COMMENT ON TABLE texts IS 'User text collections';
 COMMENT ON COLUMN texts.user_id IS 'Owner of this text';
 
--- Text-Tags junction: many-to-many with confidence
+-- Text-Tags junction: many-to-many with confidence and source tracking
 CREATE TABLE text_tags (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     text_id UUID NOT NULL REFERENCES texts(id) ON DELETE CASCADE,
     tag_id UUID NOT NULL REFERENCES tags(id) ON DELETE CASCADE,
     confidence DECIMAL(3,2) NOT NULL CHECK (confidence >= 0 AND confidence <= 1),
+    source VARCHAR(10) NOT NULL CHECK (source IN ('ai', 'manual')),
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     UNIQUE(text_id, tag_id)
 );
 
-COMMENT ON TABLE text_tags IS 'Text-tag relationships with AI confidence scores';
-COMMENT ON COLUMN text_tags.confidence IS 'AI confidence (0.00-1.00)';
+COMMENT ON TABLE text_tags IS 'Text-tag relationships with AI confidence scores and source tracking';
+COMMENT ON COLUMN text_tags.confidence IS 'Confidence score (0.00-1.00). Always 1.00 for manual tags';
+COMMENT ON COLUMN text_tags.source IS 'Tag source: "ai" (Claude API) or "manual" (user-added)';
 
 -- ============================================================================
 -- INDEXES
@@ -143,6 +148,7 @@ CREATE INDEX idx_text_tags_tag_id ON text_tags(tag_id);
 -- Search and filtering
 CREATE INDEX idx_tags_name ON tags(name);
 CREATE INDEX idx_text_tags_confidence ON text_tags(confidence DESC);
+CREATE INDEX idx_text_tags_source ON text_tags(source);
 
 -- Timestamp queries
 CREATE INDEX idx_texts_created_at ON texts(created_at DESC);
@@ -575,23 +581,30 @@ Export Modal (optional):
 #### Main Application Layout
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│ Living Tags                    [user@email.com ▾] [Sign Out] │
-├─────────────────┬───────────────────────────────────────────┤
-│                 │                                             │
-│  TAG GLOSSARY   │  [Search tags...]              [+ Add Text]│
-│  (15)           │                                             │
-│                 │  ┌─────────────────────────────────────┐   │
-│  Вовочка (23)   │  │ Штирлиц шёл по Берлину...           │   │
-│  Штирлиц (12)   │  │ [Штирлиц 95%] [Советские 87%]       │   │
-│  Программисты   │  └─────────────────────────────────────┘   │
-│  ...            │                                             │
-│                 │  ┌─────────────────────────────────────┐   │
-│  [+ Add Tag]    │  │ Программист звонит...               │   │
-│  [Import]       │  │ [Программисты 92%] [Каламбур 78%]   │   │
-│  [Export]       │  └─────────────────────────────────────┘   │
-│                 │                                             │
-└─────────────────┴───────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────┐
+│ Living Tags                       [user@email.com ▾] [Sign Out]  │
+├─────────────────┬────────────────────────────────────────────────┤
+│                 │                                                 │
+│  TAG GLOSSARY   │  [Search tags...]                 [+ Add Text] │
+│  (15)           │  [Import] [Export]                              │
+│                 │                                                 │
+│  Вовочка (23)   │  ┌──────────────────────────────────────────┐  │
+│  Штирлиц (12)   │  │ Штирлиц шёл по Берлину...                │  │
+│  Программисты   │  │ [Штирлиц 95% ✕] [Советские 87% ✕]       │  │
+│  ...            │  │ [Абсурд ✓] [+ Add tag ▾]                 │  │
+│                 │  └──────────────────────────────────────────┘  │
+│  [+ Add Tag]    │                                                 │
+│  [Import]       │  ┌──────────────────────────────────────────┐  │
+│  [Export]       │  │ Программист звонит...                    │  │
+│                 │  │ [Программисты 92% ✕]                     │  │
+│                 │  │ [Каламбур 78% ✕] [+ Add tag ▾]           │  │
+└─────────────────┴────────────────────────────────────────────────┘
+
+Legend:
+  [Tag 95% ✕]  → AI-generated tag (light gray, shows confidence %)
+  [Tag ✓]      → Manual tag (solid color, checkmark icon)
+  [✕]          → Remove button (appears on hover)
+  [+ Add tag ▾]→ Opens inline dropdown to add tags
 ```
 
 #### Responsive Design
@@ -673,6 +686,278 @@ const DELAY_BETWEEN_BATCHES = 1000; // 1 second
 
 ---
 
+### 6. Manual Tag Editing
+
+#### Motivation
+
+AI auto-tagging is not always accurate. Users need the ability to correct mistakes by manually adding or removing tags from individual texts.
+
+#### Feature Overview
+
+**Inline editing** directly on text cards:
+- Users can add tags from glossary without opening a modal
+- Users can remove existing tags (both AI and manual)
+- Clear visual distinction between AI-generated and manually-added tags
+- All changes reflected immediately with optimistic updates
+
+#### UI Design
+
+**Text Card with Inline Editing:**
+```
+┌─────────────────────────────────────────────────┐
+│ Штирлиц шёл по Берлину. Его выдавала            │
+│ волочащаяся за ним парашютная стропа.           │
+│                                                  │
+│ [Штирлиц 95% ✕] [Советские 87% ✕]              │
+│ [Абсурд ✓] [+ Add tag ▾]                       │
+│             └─────────────────────┐             │
+│                 Dropdown:         │             │
+│                 [Search...]       │             │
+│                 ☐ Вовочка         │             │
+│                 ☐ Программисты    │             │
+│                 ☐ Работа          │             │
+│                 ...               │             │
+└─────────────────────────────────────────────────┘
+
+Legend:
+  [Штирлиц 95% ✕]  → AI tag with confidence (gray background, lighter text)
+  [Абсурд ✓]        → Manual tag, 100% confidence (solid color, checkmark icon)
+  [✕]               → Remove tag button (appears on hover)
+  [+ Add tag ▾]     → Opens searchable dropdown
+```
+
+#### Visual Distinction
+
+**AI Tags:**
+- Badge style: Outlined or light gray background
+- Show confidence percentage: `"Штирлиц 95%"`
+- Lighter/muted appearance
+- Icon: No icon or small AI sparkle icon (optional)
+
+**Manual Tags:**
+- Badge style: Solid background (primary color)
+- No percentage shown (always 100% confidence)
+- Text: `"Абсурд ✓"` with checkmark icon
+- Bolder/more prominent appearance
+
+#### Interaction Behavior
+
+**Adding a Tag:**
+```
+1. User clicks "+ Add tag" on a text card
+2. Dropdown appears with searchable list of glossary tags
+3. Shows all tags, with checkboxes
+   - Checked = currently assigned to this text
+   - Unchecked = not assigned
+4. User types to filter: "про" → shows "Программисты"
+5. User clicks checkbox or tag name
+6. Tag added immediately with:
+   - confidence = 1.0
+   - source = 'manual'
+7. Dropdown stays open for adding multiple tags
+8. Click outside or press Escape to close
+```
+
+**Removing a Tag:**
+```
+1. User hovers over tag badge
+2. "✕" button appears (or always visible)
+3. User clicks "✕"
+4. Tag removed immediately from database (DELETE text_tag row)
+5. UI updates optimistically
+6. Works for both AI and manual tags
+```
+
+**Behavior Rules:**
+- Manual tags always show confidence 1.0 in database
+- Manual tags never removed by AI re-tagging operations
+- If user manually adds a tag that AI suggested, it converts to manual (source='manual')
+- If user removes an AI tag, it's deleted (not converted)
+
+#### Database Operations
+
+**Add Manual Tag:**
+```sql
+INSERT INTO text_tags (text_id, tag_id, confidence, source)
+VALUES ($1, $2, 1.0, 'manual')
+ON CONFLICT (text_id, tag_id)
+DO UPDATE SET
+  confidence = 1.0,
+  source = 'manual',
+  updated_at = NOW();
+```
+
+**Remove Tag:**
+```sql
+DELETE FROM text_tags
+WHERE text_id = $1 AND tag_id = $2;
+```
+
+**Query Tags with Source:**
+```sql
+SELECT
+  t.id,
+  t.content,
+  tg.id as tag_id,
+  tg.name as tag_name,
+  tt.confidence,
+  tt.source
+FROM texts t
+LEFT JOIN text_tags tt ON t.id = tt.text_id
+LEFT JOIN tags tg ON tt.tag_id = tg.id
+WHERE t.user_id = $1
+ORDER BY t.created_at DESC;
+```
+
+#### React Query Integration
+
+**useMutations:**
+```typescript
+// Add manual tag
+const addManualTag = useMutation({
+  mutationFn: async ({ textId, tagId }) => {
+    const { error } = await supabase
+      .from('text_tags')
+      .upsert({
+        text_id: textId,
+        tag_id: tagId,
+        confidence: 1.0,
+        source: 'manual'
+      });
+    if (error) throw error;
+  },
+  onMutate: async ({ textId, tagId }) => {
+    // Optimistic update: add tag to UI immediately
+    await queryClient.cancelQueries(['texts']);
+    const previous = queryClient.getQueryData(['texts']);
+    queryClient.setQueryData(['texts'], (old) => {
+      // Add tag to text
+    });
+    return { previous };
+  },
+  onError: (err, variables, context) => {
+    // Rollback on error
+    queryClient.setQueryData(['texts'], context.previous);
+  },
+  onSettled: () => {
+    queryClient.invalidateQueries(['texts']);
+  }
+});
+
+// Remove tag
+const removeTag = useMutation({
+  mutationFn: async ({ textId, tagId }) => {
+    const { error } = await supabase
+      .from('text_tags')
+      .delete()
+      .match({ text_id: textId, tag_id: tagId });
+    if (error) throw error;
+  },
+  onMutate: async ({ textId, tagId }) => {
+    // Optimistic update: remove tag from UI immediately
+    // Similar to addManualTag
+  },
+  onError: (err, variables, context) => {
+    queryClient.setQueryData(['texts'], context.previous);
+  },
+  onSettled: () => {
+    queryClient.invalidateQueries(['texts']);
+  }
+});
+```
+
+#### AI Auto-Tagging Updates
+
+When AI auto-tags a text, it should **respect manual tags**:
+
+```typescript
+async function autoTagText(textId: string, content: string, availableTags: Tag[]) {
+  // 1. Get existing manual tags
+  const { data: existingTags } = await supabase
+    .from('text_tags')
+    .select('tag_id, source')
+    .eq('text_id', textId)
+    .eq('source', 'manual');
+
+  const manualTagIds = existingTags?.map(t => t.tag_id) || [];
+
+  // 2. Call Claude API
+  const aiSuggestions = await callClaudeAPI(content, availableTags);
+
+  // 3. Only insert AI suggestions, preserve manual tags
+  const tagsToInsert = aiSuggestions.map(suggestion => ({
+    text_id: textId,
+    tag_id: suggestion.id,
+    confidence: suggestion.confidence,
+    source: 'ai' as const
+  }));
+
+  // 4. Delete only AI tags, keep manual
+  await supabase
+    .from('text_tags')
+    .delete()
+    .eq('text_id', textId)
+    .eq('source', 'ai');
+
+  // 5. Insert new AI tags
+  await supabase
+    .from('text_tags')
+    .insert(tagsToInsert);
+
+  // Manual tags remain untouched
+}
+```
+
+#### Components
+
+**New/Updated Components:**
+```typescript
+// components/tags/TagBadge.tsx (UPDATED)
+interface TagBadgeProps {
+  name: string;
+  confidence: number;
+  source: 'ai' | 'manual';
+  onRemove?: () => void;
+}
+
+// components/tags/InlineTagEditor.tsx (NEW)
+interface InlineTagEditorProps {
+  textId: string;
+  currentTags: Array<{ id: string; name: string; confidence: number; source: string }>;
+  availableTags: Tag[];
+  onTagAdded: (tagId: string) => void;
+  onTagRemoved: (tagId: string) => void;
+}
+
+// components/tags/TagDropdown.tsx (NEW)
+interface TagDropdownProps {
+  availableTags: Tag[];
+  selectedTagIds: string[];
+  onToggle: (tagId: string) => void;
+  searchable: boolean;
+}
+```
+
+#### User Experience Flow
+
+**Complete Flow Example:**
+```
+1. User adds new text "Программист пришёл на работу..."
+2. AI auto-tags: [Программисты 92%] [Работа 78%]
+3. User notices AI missed "Современные" tag
+4. User clicks "+ Add tag" on the card
+5. Dropdown opens, user types "Сов"
+6. "Современные" appears in filtered list
+7. User clicks it
+8. Tag added: [Современные ✓] appears (solid badge)
+9. User notices "Работа 78%" is incorrect
+10. User hovers, clicks "✕" on "Работа"
+11. Tag removed immediately
+12. Final state: [Программисты 92%] [Современные ✓]
+```
+
+---
+
 ## Development Workflow
 
 ### Subagent Usage (MANDATORY)
@@ -685,6 +970,7 @@ All implementation MUST use specialized subagents from `.claude/subagents/`:
 - Protected route guards
 - Tag Manager UI (sidebar, modals)
 - Import/Export UI (file picker, progress bars)
+- **Inline tag editing UI (dropdown, tag badges with remove)**
 - Main layout with user profile menu
 - Responsive design implementation
 - All React components and hooks
@@ -695,6 +981,7 @@ All implementation MUST use specialized subagents from `.claude/subagents/`:
 **Use for:**
 - Batch tagging logic for imports
 - Auto-tag existing texts when new tag added
+- **Preserving manual tags during AI re-tagging**
 - Queue management for AI requests
 - Error handling for Claude API
 - Rate limiting and retry logic
@@ -745,7 +1032,16 @@ All implementation MUST use specialized subagents from `.claude/subagents/`:
 □ Add usage count display
 ```
 
-**Phase 3: Import/Export (Days 5-6)**
+**Phase 3: Manual Tag Editing (Days 4-5)**
+```
+□ Use frontend-specialist for inline tag editor UI
+□ Implement add/remove tag mutations
+□ Add visual distinction (AI vs manual badges)
+□ Use claude-integration-specialist to update auto-tag logic
+□ Test manual tag preservation during re-tagging
+```
+
+**Phase 4: Import/Export (Days 5-6)**
 ```
 □ Use frontend-specialist for import/export UI
 □ Implement file parsing and validation
@@ -789,10 +1085,21 @@ All implementation MUST use specialized subagents from `.claude/subagents/`:
 - [ ] Export to JSON → download works, format valid
 - [ ] Re-import exported JSON → data matches
 
+#### Manual Tag Editing
+- [ ] Click "+ Add tag" → dropdown opens with searchable list
+- [ ] Search filters tags correctly
+- [ ] Add manual tag → appears with checkmark icon (no percentage)
+- [ ] Remove AI tag → disappears immediately
+- [ ] Remove manual tag → disappears immediately
+- [ ] Manual tags persist after AI re-tagging
+- [ ] AI tags and manual tags visually distinct
+- [ ] Optimistic updates work (immediate UI response)
+
 #### Core Features (from PoC)
 - [ ] Add text → auto-tags appear with confidence
 - [ ] Search by tag → filters correctly
-- [ ] Confidence colors display (green, yellow, gray)
+- [ ] AI tag confidence colors display correctly
+- [ ] Manual tags show solid appearance with checkmark
 - [ ] All operations complete within acceptable time
 
 ### Load Testing
@@ -926,8 +1233,8 @@ Not implemented in prototype, but planned for MVP:
 - **Team workspaces / shared collections**
 - **Full-text search** (PostgreSQL FTS)
 - **Tag categories** (grouping tags)
-- **Manual tag editing** (add/remove tags from texts)
-- **Activity history**
+- **Bulk tag operations** (add/remove tag from multiple texts at once)
+- **Activity history** (audit log of tag changes)
 - **API access**
 - **Mobile app (PWA)**
 
@@ -967,6 +1274,7 @@ export interface TextTag {
   text_id: string;
   tag_id: string;
   confidence: number;
+  source: 'ai' | 'manual';
   created_at: string;
   updated_at: string;
 }
@@ -976,6 +1284,7 @@ export interface TextWithTags extends Text {
   tags: Array<{
     tag: Tag;
     confidence: number;
+    source: 'ai' | 'manual';
   }>;
 }
 
@@ -1002,6 +1311,7 @@ export interface ExportFormat {
     tags: Array<{
       name: string;
       confidence: number;
+      source: 'ai' | 'manual';
     }>;
     created_at: string;
   }>;
@@ -1027,14 +1337,16 @@ src/
 │   │   └── SearchBar.tsx          # UNCHANGED from PoC
 │   ├── texts/
 │   │   ├── TextList.tsx           # UNCHANGED
-│   │   ├── TextCard.tsx           # UNCHANGED
+│   │   ├── TextCard.tsx           # UPDATED (add inline tag editor)
 │   │   └── AddTextModal.tsx       # UNCHANGED
 │   ├── tags/
-│   │   ├── TagBadge.tsx           # UNCHANGED
+│   │   ├── TagBadge.tsx           # UPDATED (add source, onRemove)
 │   │   ├── TagManager.tsx         # NEW
 │   │   ├── AddTagModal.tsx        # NEW
 │   │   ├── EditTagModal.tsx       # NEW
-│   │   └── DeleteTagDialog.tsx    # NEW
+│   │   ├── DeleteTagDialog.tsx    # NEW
+│   │   ├── InlineTagEditor.tsx    # NEW
+│   │   └── TagDropdown.tsx        # NEW
 │   ├── import-export/
 │   │   ├── ImportModal.tsx        # NEW
 │   │   ├── ExportModal.tsx        # NEW
@@ -1049,7 +1361,8 @@ src/
 │   ├── useAuth.ts                 # NEW
 │   ├── useTexts.ts                # UPDATED (add user_id filter)
 │   ├── useTags.ts                 # UPDATED (add CRUD operations)
-│   ├── useAutoTag.ts              # UPDATED (add batch mode)
+│   ├── useAutoTag.ts              # UPDATED (add batch mode, preserve manual)
+│   ├── useManualTag.ts            # NEW (add/remove manual tags)
 │   ├── useImport.ts               # NEW
 │   └── useExport.ts               # NEW
 ├── pages/
@@ -1063,13 +1376,15 @@ src/
 
 ## Document Status
 
-**Version:** 1.0
+**Version:** 1.1
 **Created:** 2025-11-13
+**Last Updated:** 2025-11-13
 **Author:** Based on PoC validation and Stage 2 plan
 **Status:** Ready for implementation
 
 **Change Log:**
-- 2025-11-13: Initial prototype specification created
+- 2025-11-13 v1.1: Added manual tag editing feature with inline UI
+- 2025-11-13 v1.0: Initial prototype specification created
 
 ---
 
