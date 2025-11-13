@@ -2,7 +2,7 @@
 
 ## Executive Summary
 
-This document specifies the Prototype (Stage 2) of the Living Tags platform - a multi-user SaaS application for managing text collections with AI-powered auto-tagging. Building on the successful PoC validation, this prototype introduces user accounts, isolated data spaces, dynamic glossary management, and bulk operations.
+This document specifies the Prototype (Stage 2) of the Living Tags platform - a multi-user SaaS application for managing text collections with AI-powered auto-tagging. Building on the successful PoC validation, this prototype introduces user accounts, isolated data spaces, dynamic tag glossary management, and bulk operations.
 
 **Timeline:** 3-6 days
 **Status:** Planning
@@ -15,7 +15,7 @@ This document specifies the Prototype (Stage 2) of the Living Tags platform - a 
 ### Primary Goals
 
 1. **Multi-tenancy**: Implement user authentication and complete data isolation
-2. **Dynamic Glossary**: Full CRUD operations with automatic synchronization across all user's texts
+2. **Dynamic Tag Glossary**: Full CRUD operations with automatic synchronization across all user's texts
 3. **Manual Tag Correction**: Inline editing to add/remove tags, with preservation during AI re-tagging
 4. **Scalability**: Support 100+ texts per user with batch processing
 5. **Data Portability**: Import/export functionality for text collections
@@ -23,7 +23,7 @@ This document specifies the Prototype (Stage 2) of the Living Tags platform - a 
 ### Success Criteria
 
 - ✅ Complete user data isolation (verified with test accounts)
-- ✅ Glossary synchronization works without data loss
+- ✅ Tag glossary synchronization works without data loss
 - ✅ Manual tag editing works with clear AI/manual distinction
 - ✅ Manual tags preserved during AI re-tagging operations
 - ✅ Import of 100+ texts completes successfully with progress indication
@@ -91,7 +91,7 @@ CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 -- Users table (managed by Supabase Auth)
 -- Reference: auth.users (built-in)
 
--- Tags table: user-specific glossary
+-- Tags table: user-specific tag glossary
 CREATE TABLE tags (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
@@ -101,7 +101,7 @@ CREATE TABLE tags (
     UNIQUE(user_id, name) -- Unique per user
 );
 
-COMMENT ON TABLE tags IS 'User-specific tag glossaries';
+COMMENT ON TABLE tags IS 'User-specific tag glossaries (user''s personal tag vocabulary)';
 COMMENT ON COLUMN tags.user_id IS 'Owner of this tag';
 COMMENT ON COLUMN tags.name IS 'Tag name in user''s language (typically Russian)';
 
@@ -346,7 +346,7 @@ const DEFAULT_TAGS = [
 
 ---
 
-### 2. Dynamic Glossary Management
+### 2. Dynamic Tag Glossary Management
 
 #### CRUD Operations
 
@@ -514,7 +514,7 @@ User adds "Животные" tag and checks "Auto-tag existing texts"
   "format": "living-tags-v1",
   "exported_at": "2025-11-13T17:45:00Z",
   "user_email": "user@example.com",
-  "glossary": [
+  "tag_glossary": [
     { "name": "Вовочка" },
     { "name": "Штирлиц" }
   ],
@@ -574,7 +574,7 @@ Export Modal (optional):
 
 // Protected routes (require auth)
 /app                 → Main application interface
-/app/glossary        → Tag management page (optional, can be sidebar)
+/app/tag-glossary    → Tag glossary management page (optional, can be sidebar)
 /app/settings        → User settings (optional for prototype)
 ```
 
@@ -695,7 +695,7 @@ AI auto-tagging is not always accurate. Users need the ability to correct mistak
 #### Feature Overview
 
 **Inline editing** directly on text cards:
-- Users can add tags from glossary without opening a modal
+- Users can add tags from their tag glossary without opening a modal
 - Users can remove existing tags (both AI and manual)
 - Clear visual distinction between AI-generated and manually-added tags
 - All changes reflected immediately with optimistic updates
@@ -745,7 +745,7 @@ Legend:
 **Adding a Tag:**
 ```
 1. User clicks "+ Add tag" on a text card
-2. Dropdown appears with searchable list of glossary tags
+2. Dropdown appears with searchable list of tags from their tag glossary
 3. Shows all tags, with checkboxes
    - Checked = currently assigned to this text
    - Unchecked = not assigned
@@ -968,7 +968,7 @@ All implementation MUST use specialized subagents from `.claude/subagents/`:
 **Use for:**
 - Auth UI components (Landing, Sign In, Sign Up)
 - Protected route guards
-- Tag Manager UI (sidebar, modals)
+- Tag Glossary Manager UI (sidebar, modals)
 - Import/Export UI (file picker, progress bars)
 - **Inline tag editing UI (dropdown, tag badges with remove)**
 - Main layout with user profile menu
@@ -1023,9 +1023,9 @@ All implementation MUST use specialized subagents from `.claude/subagents/`:
 □ Test complete auth flow
 ```
 
-**Phase 2: Glossary Management (Days 3-4)**
+**Phase 2: Tag Glossary Management (Days 3-4)**
 ```
-□ Use frontend-specialist for Tag Manager UI
+□ Use frontend-specialist for Tag Glossary Manager UI
 □ Implement CRUD operations for tags
 □ Use claude-integration-specialist for auto-tag existing texts
 □ Test synchronization scenarios
@@ -1071,7 +1071,7 @@ All implementation MUST use specialized subagents from `.claude/subagents/`:
 - [ ] Sign in as User A → see only User A's data
 - [ ] Sign in as User B → see only User B's data
 
-#### Glossary Management
+#### Tag Glossary Management
 - [ ] Add new tag → appears in sidebar
 - [ ] Rename tag → updates everywhere
 - [ ] Delete tag → removes from all texts (with confirmation)
@@ -1106,7 +1106,7 @@ All implementation MUST use specialized subagents from `.claude/subagents/`:
 
 **Test Scenarios:**
 - 100 texts per user
-- 30 tags in glossary
+- 30 tags in tag glossary
 - Import 100 texts at once
 - Search with multiple tag filters
 
@@ -1305,7 +1305,7 @@ export interface ExportFormat {
   format: 'living-tags-v1';
   exported_at: string;
   user_email: string;
-  glossary: Array<{ name: string }>;
+  tag_glossary: Array<{ name: string }>;
   texts: Array<{
     content: string;
     tags: Array<{
