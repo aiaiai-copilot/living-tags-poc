@@ -103,7 +103,7 @@ Return the JSON array now:`;
   try {
     // Call Claude API
     const response = await anthropic.messages.create({
-      model: 'claude-3-sonnet-20240229',
+      model: 'claude-3-haiku-20240307',
       max_tokens: 1024,
       system:
         'You are an expert at analyzing Russian humor and assigning semantic tags. You understand the cultural context, references, and themes common in Russian jokes and anecdotes. Always respond with valid JSON only.',
