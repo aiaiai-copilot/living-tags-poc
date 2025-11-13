@@ -472,17 +472,48 @@ User adds "Животные" tag and checks "Auto-tag existing texts"
 Вовочка приходит домой...
 ```
 
-**JSON** (structured format):
+**JSON** (structured format with flexible tag specification):
+
+**Format 1: Simple string array (treated as manual tags)**
 ```json
 {
   "format": "living-tags-v1",
   "texts": [
     {
       "content": "Штирлиц шёл по Берлину...",
-      "tags": ["Штирлиц", "Советские"] // Optional: pre-tagged
-    },
+      "tags": ["Штирлиц", "Советские"]
+    }
+  ]
+}
+```
+
+**Format 2: Object without source (treated as AI-generated)**
+```json
+{
+  "format": "living-tags-v1",
+  "texts": [
     {
-      "content": "Программист звонит в библиотеку..."
+      "content": "Штирлиц шёл по Берлину...",
+      "tags": [
+        { "name": "Штирлиц", "confidence": 0.95 },
+        { "name": "Советские", "confidence": 0.87 }
+      ]
+    }
+  ]
+}
+```
+
+**Format 3: Full format with source (preserves AI/manual distinction)**
+```json
+{
+  "format": "living-tags-v1",
+  "texts": [
+    {
+      "content": "Штирлиц шёл по Берлину...",
+      "tags": [
+        { "name": "Штирлиц", "confidence": 0.95, "source": "ai" },
+        { "name": "Советские", "confidence": 1.0, "source": "manual" }
+      ]
     }
   ]
 }
@@ -499,16 +530,71 @@ User adds "Животные" tag and checks "Auto-tag existing texts"
 6. User confirms
 7. Process in batches:
    a. Insert text into database
-   b. Call Claude API for auto-tagging
+   b. For each text:
+      - If tags are provided (pre-tagged):
+        * Match tag names to user's tag glossary
+        * Create missing tags in glossary
+        * Parse tag format:
+          - String array → insert as manual (confidence 1.0)
+          - Object without source → insert as AI with given confidence
+          - Object with source → preserve source and confidence
+      - If no tags provided:
+        * Call Claude API for auto-tagging (source='ai')
    c. Update progress bar
    d. Handle errors gracefully (skip invalid entries)
-8. Show summary: "Imported X texts, Y tags assigned"
+8. Show summary: "Imported X texts, Y AI tags, Z manual tags"
 9. Refresh text list
 ```
 
+#### Import Logic Implementation
+
+**Tag Format Detection:**
+```typescript
+function parseImportedTag(
+  tag: string | { name: string; confidence?: number; source?: string },
+  userGlossary: Tag[]
+): { tagId: string; confidence: number; source: 'ai' | 'manual' } {
+
+  // Format 1: String array (e.g., ["Штирлиц", "Советские"])
+  if (typeof tag === 'string') {
+    const glossaryTag = findOrCreateTag(tag, userGlossary);
+    return {
+      tagId: glossaryTag.id,
+      confidence: 1.0,
+      source: 'manual' // String arrays are user-specified
+    };
+  }
+
+  // Format 2: Object without source
+  if (!tag.source) {
+    const glossaryTag = findOrCreateTag(tag.name, userGlossary);
+    return {
+      tagId: glossaryTag.id,
+      confidence: tag.confidence || 0.5,
+      source: 'ai' // Default to AI if confidence provided
+    };
+  }
+
+  // Format 3: Full object with source
+  const glossaryTag = findOrCreateTag(tag.name, userGlossary);
+  return {
+    tagId: glossaryTag.id,
+    confidence: tag.confidence || (tag.source === 'manual' ? 1.0 : 0.5),
+    source: tag.source
+  };
+}
+```
+
+**Rationale:**
+- **String arrays** = User explicitly listed these tags → treat as manual
+- **Objects without source** = Legacy format or AI output → treat as AI
+- **Objects with source** = Full fidelity export → preserve exactly
+
+This ensures backward compatibility while supporting full round-trip fidelity for manual tag corrections.
+
 #### Export Format
 
-**JSON Export** (complete data):
+**JSON Export** (complete data with source preservation):
 ```json
 {
   "format": "living-tags-v1",
@@ -522,8 +608,9 @@ User adds "Животные" tag and checks "Auto-tag existing texts"
     {
       "content": "Штирлиц шёл по Берлину...",
       "tags": [
-        { "name": "Штирлиц", "confidence": 0.95 },
-        { "name": "Советские", "confidence": 0.87 }
+        { "name": "Штирлиц", "confidence": 0.95, "source": "ai" },
+        { "name": "Советские", "confidence": 0.87, "source": "ai" },
+        { "name": "Абсурд", "confidence": 1.0, "source": "manual" }
       ],
       "created_at": "2025-11-12T10:30:00Z"
     }
@@ -550,13 +637,21 @@ Header Actions:
 Import Modal:
   - File picker
   - Format selector (auto-detected)
-  - Preview pane
+  - Preview pane showing:
+    * Number of texts found
+    * Texts with pre-existing tags
+    * Tag source detection (manual/AI/none)
   - Progress bar during import
   - Error list (if any)
+  - Summary: "Imported X texts (Y with AI tags, Z with manual tags)"
 
 Export Modal (optional):
-  - Format selector (JSON only for prototype)
-  - "Include confidence scores" checkbox
+  - Format: JSON (full fidelity with source tracking)
+  - Automatically includes:
+    * All texts with content
+    * All tags with confidence and source
+    * Tag glossary
+    * Metadata (export date, user email)
   - Download button
 ```
 
@@ -1045,9 +1140,12 @@ All implementation MUST use specialized subagents from `.claude/subagents/`:
 ```
 □ Use frontend-specialist for import/export UI
 □ Implement file parsing and validation
+□ Add tag format detection logic (string array vs object)
 □ Use claude-integration-specialist for batch processing
+□ Implement source preservation on export
 □ Add progress indicators
 □ Test with large datasets (100+ texts)
+□ Test round-trip: export → re-import → verify sources match
 ```
 
 ---
@@ -1079,11 +1177,14 @@ All implementation MUST use specialized subagents from `.claude/subagents/`:
 - [ ] Usage count updates correctly
 
 #### Import/Export
-- [ ] Import plain text (10 texts) → all appear in list
-- [ ] Import JSON with pre-tags → tags preserved
+- [ ] Import plain text (10 texts) → all appear, auto-tagged by AI
+- [ ] Import JSON with string array tags → treated as manual tags
+- [ ] Import JSON with object tags without source → treated as AI tags
+- [ ] Import JSON with source specified → preserves AI/manual distinction
 - [ ] Import 100+ texts → progress bar shows, all succeed
-- [ ] Export to JSON → download works, format valid
-- [ ] Re-import exported JSON → data matches
+- [ ] Export to JSON → includes source field for all tags
+- [ ] Re-import exported JSON → manual tags stay manual, AI tags stay AI
+- [ ] Create missing tags during import → added to user's glossary
 
 #### Manual Tag Editing
 - [ ] Click "+ Add tag" → dropdown opens with searchable list
@@ -1297,7 +1398,11 @@ export interface ImportFormat {
   format: 'living-tags-v1';
   texts: Array<{
     content: string;
-    tags?: string[]; // Optional pre-tags
+    tags?: string[] | Array<{
+      name: string;
+      confidence?: number;
+      source?: 'ai' | 'manual';
+    }>; // Flexible tag format
   }>;
 }
 
@@ -1376,13 +1481,14 @@ src/
 
 ## Document Status
 
-**Version:** 1.1
+**Version:** 1.2
 **Created:** 2025-11-13
 **Last Updated:** 2025-11-13
 **Author:** Based on PoC validation and Stage 2 plan
 **Status:** Ready for implementation
 
 **Change Log:**
+- 2025-11-13 v1.2: Updated import/export with source preservation and flexible format support
 - 2025-11-13 v1.1: Added manual tag editing feature with inline UI
 - 2025-11-13 v1.0: Initial prototype specification created
 
