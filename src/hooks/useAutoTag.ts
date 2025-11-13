@@ -66,7 +66,17 @@ export function useAutoTag() {
         return [];
       }
 
-      // Step 3: Insert tag assignments into text_tags table
+      // Step 3: Delete existing tags for this text (if re-tagging)
+      const { error: deleteError } = await supabase
+        .from('text_tags')
+        .delete()
+        .eq('text_id', textId);
+
+      if (deleteError) {
+        console.warn('Failed to delete old tags:', deleteError.message);
+      }
+
+      // Step 4: Insert new tag assignments into text_tags table
       const tagAssignments = analyzedTags.map((tag) => ({
         text_id: textId,
         tag_id: tag.id,
