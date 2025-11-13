@@ -77,16 +77,18 @@ AVAILABLE TAGS:
 ${tagsListFormatted}
 
 INSTRUCTIONS:
-1. Identify which tags are relevant to this text
-2. Consider both explicit mentions AND semantic/thematic meaning
-3. Assign a confidence score (0.0 to 1.0) for each relevant tag:
-   - 1.0: Explicitly mentioned or primary theme
-   - 0.7-0.9: Strong thematic connection
-   - 0.5-0.6: Moderate relevance
-   - 0.3-0.4: Weak but present connection
-4. Only include tags with confidence > 0.3
-5. Select a maximum of 5-7 most relevant tags
-6. Return ONLY valid JSON (no markdown, no explanation)
+1. FIRST, scan for EXPLICIT MENTIONS of names, places, or keywords in the text
+   - If a tag name appears directly in the text, it MUST be included with confidence 0.95-1.0
+   - Example: If text contains "Вовочка", the tag "Вовочка" must be assigned
+
+2. SECOND, identify thematic and semantic connections:
+   - Strong thematic connection: 0.7-0.9
+   - Moderate relevance: 0.5-0.6
+   - Weak but present connection: 0.3-0.4
+
+3. Only include tags with confidence > 0.3
+4. Select a maximum of 5-7 most relevant tags
+5. Return ONLY valid JSON (no markdown, no explanation)
 
 RESPONSE FORMAT (JSON array):
 [
